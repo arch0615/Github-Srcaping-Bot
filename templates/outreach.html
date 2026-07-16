@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Outreach{% endblock %}
+{% block content %}
+<style>
+  .plan-form { display:grid; grid-template-columns:1fr 1fr 1fr; gap:14px; align-items:end; }
+  .plan-form .full { grid-column:1/-1; }
+  textarea { width:100%; min-height:150px; padding:8px 10px; background:#0d1117; color:var(--fg);
+             border:1px solid var(--border); border-radius:6px; font:inherit; resize:vertical; }
+  .tokens code { cursor:default; }
+  .elig { font-size:13px; }
+  .elig b { color:var(--green); font-variant-numeric:tabular-nums; }
+  .banner { border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:13px; }
+  .banner.warn { background:rgba(227,179,65,.12); border:1px solid #e3b341; color:#e3b341; }
+  .banner.ok   { background:rgba(63,185,80,.12); border:1px solid var(--green); color:var(--green); }
+  .plan-row { display:grid; grid-template-columns:auto 1fr auto auto; gap:12px; align-items:center;
+              padding:12px 0; border-bottom:1px solid var(--border); }
+  .plan-row:last-child { border-bottom:0; }
+  .badge { font-size:11px; padding:2px 9px; border-radius:12px; border:1px solid var(--border); text-transform:uppercase; letter-spacing:.03em; }
+  .badge.draft { color:var(--muted); }
+  .badge.sending { background:rgba(47,129,247,.15); color:#79c0ff; border-color:var(--accent); }
+  .badge.done { background:rgba(63,185,80,.15); color:var(--green); border-color:var(--green); }
+  .badge.stopped { background:rgba(248,81,73,.12); color:var(--red); border-color:var(--red); }
+  .plan-meta { font-size:13px; }
+  .plan-meta .muted { font-size:12px; }
+  .counts { font-size:12px; font-variant-numeric:tabular-nums; }
+  .counts .s { color:var(--green); } .counts .f { color:var(--red); } .counts .k { color:var(--muted); }
+</style>
+
+  {% if smtp_ready %}
+  <div class="banner ok">✓ Sending is live — messages go out from
+      <b>{{ from_email }}</b>. Throttled per <code>SEND_DELAY</code>.</div>
+  {% else %}
+  <div class="banner warn">⚠ SMTP is not configured, so sending runs in
+      <b>DRY-RUN</b> mode — recipients are selected and logged as <code>skipped</code>
+      but <b>no email is actually sent</b>. Fill <code>SMTP_HOST / SMTP_USER /
+      SMTP_PASS / FROM_EMAIL</code> in <code>.env</code> to go live.</div>
+  {% endif %}
+
+  <!-- 1) Weekly plan builder -->
+  <div class="panel">
+    <h2>① Make this week's plan</h2>
+    <form class="plan-form" method="post" action="/outreach/plan">
+      <div>
+        <label>Continent</label>
+        <select name="continent" id="f-continent">
+          <option value="">Any continent</option>
+          {% for c in continents %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>Country</label>
+        <select name="country" id="f-country">
+          <option value="">Any country</option>
+          {% for co in country_options %}<option value="{{ co }}">{{ co }}</option>{% endfor %}
+        </select>
+      </div>
+      <div>
+        <label>How many to send</label>
+        <input type="number" name="send_count" id="f-count" min="1" value="20">
+      </div>
+      <div class="full elig">Eligible (not yet contacted):
+          <b id="eligN">…</b> developer(s) match this filter.</div>
+      <div class="full">
+        <label>Subject</label>
+        <input name="subject" value="{{ default_subject }}">
+      </div>
+      <div class="full">
+        <label>Message</label>
+        <textarea name="body">{{ default_body }}</textarea>
+        <div class="muted tokens" style="margin-top:6px">Tokens you can use:
+          <code>{name}</code> <code>{first_name}</code> <code>{login}</code>
+          <code>{country}</code> <code>{location}</code></div>
+      </div>
+      <div class="full"><button type="submit">＋ Create plan</button></div>
+    </form>
+  </div>
+
+  <!-- 2) Plans + send -->
+  <div class="panel">
+    <h2>② Plans &amp; auto-send</h2>
+    {% if sending %}
+    <div class="row" style="margin-bottom:10px">
+      <span class="badge sending">sending plan #{{ sending_plan }}</span>
+      <form method="post" action="/outreach/stop" style="margin-left:auto">
+        <button class="stop" type="submit">Stop</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% for p in plans %}
+      <div class="plan-row">
+        <span class="badge {{ p.status }}">{{ p.status }}</span>
+        <div class="plan-meta">
+          <b>#{{ p.id }}</b> ·
+          {{ p.continent or 'Any continent' }}{% if p.country %} / {{ p.country }}{% endif %}
+          · target {{ p.send_count }}
+          <div class="muted">week of {{ p.week_start }} — “{{ p.subject }}”</div>
+        </div>
+        <div class="counts">
+          <span class="s">{{ p.sent_n }} sent</span>
+          {% if p.failed_n %}· <span class="f">{{ p.failed_n }} failed</span>{% endif %}
+          {% if p.skipped_n %}· <span class="k">{{ p.skipped_n }} skipped</span>{% endif %}
+        </div>
+        <div>
+          {% if not sending and p.status in ('draft', 'stopped') %}
+            <form method="post" action="/outreach/send/{{ p.id }}">
+              <button type="submit">▶ {{ 'Resume' if p.status == 'stopped' else 'Send now' }}</button>
+            </form>
+          {% elif p.status == 'done' %}
+            <span class="muted">✓ done</span>
+          {% else %}
+            <span class="muted">—</span>
+          {% endif %}
+        </div>
+      </div>
+    {% else %}
+      <div class="muted">No plans yet. Create one above.</div>
+    {% endfor %}
+
+    <pre id="sendlog" style="display:{{ 'block' if sending else 'none' }}">{{ '(no send output yet)' }}</pre>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Live eligible-count preview as filters change.
+async function updateEligible() {
+  const cont = document.getElementById('f-continent').value;
+  const co = document.getElementById('f-country').value;
+  const el = document.getElementById('eligN');
+  try {
+    const r = await fetch('/outreach/preview?continent=' + encodeURIComponent(cont) +
+                          '&country=' + encodeURIComponent(co));
+    const s = await r.json();
+    el.textContent = s.eligible.toLocaleString();
+  } catch (e) { el.textContent = '?'; }
+}
+document.getElementById('f-continent').addEventListener('change', updateEligible);
+document.getElementById('f-country').addEventListener('change', updateEligible);
+updateEligible();
+
+// Stream the send log; reload the page when a send finishes so counts refresh.
+let wasSending = {{ 'true' if sending else 'false' }};
+async function pollSend() {
+  try {
+    const r = await fetch('/outreach/status'); const s = await r.json();
+    const log = document.getElementById('sendlog');
+    if (s.sending || s.log) {
+      log.style.display = 'block';
+      if (s.log) { log.textContent = s.log; log.scrollTop = log.scrollHeight; }
+    }
+    if (wasSending && !s.sending) { location.reload(); return; }
+    wasSending = s.sending;
+  } catch (e) {}
+  setTimeout(pollSend, 2000);
+}
+pollSend();
+</script>
+{% endblock %}

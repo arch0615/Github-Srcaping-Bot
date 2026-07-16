@@ -1,0 +1,27 @@
+# Secrets & config
+.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+get-pip.py
+
+# Logs
+run.log
+send.log
+serve.log
+*.log
+
+# --- Database: never commit the data dir or large SQL dumps ----------------
+# The embedded Postgres data lives in ~/.ghscraper/pgdata (outside the repo),
+# but ignore any local copies + dumps too. schema.sql is small and IS tracked.
+pgdata/
+*.sql
+!schema.sql
+*.dump
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+*.bak

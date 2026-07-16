@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GitHub Dev Collector — {% block title %}{% endblock %}</title>
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --fg:#e6edf3;
+          --muted:#8b949e; --accent:#2f81f7; --green:#3fb950; --red:#f85149; }
+  * { box-sizing: border-box; }
+  html, body { width:100%; min-height:100vh; }
+  body { margin:0; font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;
+         background:var(--bg); color:var(--fg); color-scheme:dark; }
+  input[type=date] { color-scheme:dark; }
+  .avatar { width:32px; height:32px; border-radius:50%; display:block;
+            background:#21262d; border:1px solid var(--border); }
+  .avcol { width:40px; }
+  header { padding:14px 24px; border-bottom:1px solid var(--border);
+           display:flex; align-items:center; gap:20px; }
+  header h1 { font-size:17px; margin:0; white-space:nowrap; }
+  nav { display:flex; gap:6px; }
+  nav a { padding:7px 14px; border-radius:7px; color:var(--muted); text-decoration:none;
+          font-weight:600; font-size:14px; }
+  nav a:hover { background:#21262d; color:var(--fg); }
+  nav a.active { background:rgba(47,129,247,.15); color:#79c0ff; }
+  .wrap { padding:24px; width:100%; margin:0; }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+           gap:16px; margin-bottom:24px; }
+  .card { background:var(--panel); border:1px solid var(--border);
+          border-radius:10px; padding:16px; }
+  .card h3 { margin:0 0 10px; font-size:12px; text-transform:uppercase;
+             letter-spacing:.04em; color:var(--muted); }
+  .big { font-size:32px; font-weight:700; }
+  .bar { display:flex; justify-content:space-between; font-size:13px;
+         padding:3px 0; border-bottom:1px solid var(--border); }
+  .bar:last-child { border:0; }
+  .bar .n { color:var(--accent); font-variant-numeric:tabular-nums; }
+  .panel { background:var(--panel); border:1px solid var(--border);
+           border-radius:10px; padding:16px; margin-bottom:24px; }
+  .panel h2 { margin:0 0 14px; font-size:15px; }
+  form.controls { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; align-items:end; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input, button { font:inherit; }
+  input, select { width:100%; padding:8px 10px; background:#0d1117; color:var(--fg);
+          border:1px solid var(--border); border-radius:6px; }
+  button { padding:8px 16px; border-radius:6px; border:1px solid var(--border);
+           background:var(--accent); color:#fff; cursor:pointer; font-weight:600; }
+  button.stop { background:var(--red); }
+  button.secondary { background:#21262d; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .pill { font-size:12px; padding:2px 10px; border-radius:20px; border:1px solid var(--border); }
+  .pill.on { background:rgba(63,185,80,.15); color:var(--green); border-color:var(--green); }
+  .pill.off { color:var(--muted); }
+  pre#log { background:#010409; border:1px solid var(--border); border-radius:8px;
+            padding:12px; max-height:360px; overflow:auto; font-size:12px;
+            white-space:pre-wrap; margin-top:12px; color:#c9d1d9; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--border);
+           font-size:13px; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; position:sticky; top:0; background:var(--panel); }
+  td a { color:var(--accent); text-decoration:none; }
+  td a:hover { text-decoration:underline; }
+  .muted { color:var(--muted); }
+  .filters { display:grid; grid-template-columns:1.6fr 1fr 1fr 1fr 1.3fr 1fr auto; gap:10px; margin-bottom:14px; align-items:start; }
+  .ms { position:relative; }
+  .ms-btn { width:100%; text-align:left; background:#0d1117; color:var(--fg);
+            border:1px solid var(--border); border-radius:6px; padding:8px 10px;
+            cursor:pointer; font-weight:400; display:flex; justify-content:space-between; gap:6px; }
+  .ms-btn .cnt { color:var(--accent); }
+  .ms-panel { display:none; position:absolute; z-index:20; top:calc(100% + 4px); left:0;
+              right:0; max-height:260px; overflow:auto; background:var(--panel);
+              border:1px solid var(--border); border-radius:8px; padding:6px;
+              box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  .ms-panel.open { display:block; }
+  .ms-panel label { display:flex; align-items:center; gap:8px; padding:6px 8px;
+                    margin:0; color:var(--fg); font-size:13px; border-radius:5px; cursor:pointer; }
+  .ms-panel label:hover { background:#21262d; }
+  .ms-panel input[type=checkbox] { width:auto; }
+  .ms-empty { color:var(--muted); padding:8px; font-size:13px; }
+  .skill-pill { display:inline-block; font-size:11px; padding:1px 7px; margin:1px 2px 1px 0;
+                border-radius:12px; background:rgba(47,129,247,.15); color:#79c0ff;
+                border:1px solid rgba(47,129,247,.35); }
+  .chkcol { width:34px; text-align:center; }
+  .nocol { width:46px; text-align:right; font-variant-numeric:tabular-nums; }
+  tr.selected td { background:rgba(47,129,247,.10); }
+  .pager { display:flex; gap:6px; align-items:center; margin-top:16px; justify-content:center; flex-wrap:wrap; }
+  .pg { padding:6px 11px; border-radius:6px; border:1px solid var(--border);
+        background:#21262d; color:var(--fg); text-decoration:none; font-size:13px;
+        font-variant-numeric:tabular-nums; }
+  a.pg:hover { border-color:var(--accent); }
+  .pg.current { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  .pg.gap { background:transparent; border:0; color:var(--muted); padding:6px 4px; }
+  .pg.disabled { color:var(--muted); opacity:.5; }
+  .empty { text-align:center; color:var(--muted); padding:40px; }
+  code { background:#0d1117; padding:1px 5px; border-radius:4px; border:1px solid var(--border); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛰️ GitHub Dev Collector</h1>
+  <nav>
+    <a href="/" class="{{ 'active' if active == 'dashboard' else '' }}">Dashboard</a>
+    <a href="/scrape" class="{{ 'active' if active == 'scrape' else '' }}">Scraping</a>
+    <a href="/users" class="{{ 'active' if active == 'users' else '' }}">Users</a>
+    <a href="/outreach" class="{{ 'active' if active == 'outreach' else '' }}">Outreach</a>
+    <a href="/history" class="{{ 'active' if active == 'history' else '' }}">History</a>
+  </nav>
+  <span class="pill {{ 'on' if running else 'off' }}" id="statePill" style="margin-left:auto">
+    {{ 'Scraping…' if running else 'Idle' }}
+  </span>
+</header>
+
+<div class="wrap">
+{% block content %}{% endblock %}
+</div>
+
+<script>
+// Shared: keep the header state pill in sync; pages can hook window.onStatus.
+async function poll() {
+  try {
+    const r = await fetch('/status'); const s = await r.json();
+    const pill = document.getElementById('statePill');
+    if (pill) { pill.textContent = s.running ? 'Scraping…' : 'Idle';
+                pill.className = 'pill ' + (s.running ? 'on' : 'off'); }
+    if (window.onStatus) window.onStatus(s);
+  } catch (e) {}
+  setTimeout(poll, 2000);
+}
+poll();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

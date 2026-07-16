@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Users{% endblock %}
+{% block content %}
+
+  <div class="panel">
+    <h2>Collected developers <span class="muted">({{ "{:,}".format(total) }} match)</span>
+        <span id="selCount" class="pill on" style="margin-left:8px"></span></h2>
+    <form class="filters" method="get" action="/users">
+      <input name="q" value="{{ q }}" placeholder="search login / name / email / location">
+      <input name="domain" value="{{ domain }}" placeholder="email domain e.g. gmail.com">
+      <select name="continent">
+        <option value="">All continents</option>
+        {% for c in continents %}
+          <option value="{{ c }}" {{ 'selected' if c == continent else '' }}>{{ c }}</option>
+        {% endfor %}
+      </select>
+      <select name="country">
+        <option value="">All countries</option>
+        {% for co in country_options %}
+          <option value="{{ co }}" {{ 'selected' if co == country else '' }}>{{ co }}</option>
+        {% endfor %}
+      </select>
+      <div class="ms" id="skillsMs">
+        <button type="button" class="ms-btn" onclick="toggleSkills(event)">
+          <span>{% if skills %}Skills{% else %}Tech skills (any){% endif %}</span>
+          {% if skills %}<span class="cnt">{{ skills|length }}</span>{% endif %}
+        </button>
+        <div class="ms-panel" id="skillsPanel">
+          {% for s in skill_options %}
+            <label><input type="checkbox" name="skills" value="{{ s }}"
+                   {{ 'checked' if s in skills else '' }}> {{ s }}</label>
+          {% else %}
+            <div class="ms-empty">No skills collected yet.</div>
+          {% endfor %}
+        </div>
+      </div>
+      <input type="date" name="created_after" value="{{ created_after }}" title="Created after">
+      <button type="submit">Filter</button>
+    </form>
+
+    {% if rows %}
+    <div style="overflow:auto">
+    <table>
+      <thead><tr>
+        <th class="chkcol"><input type="checkbox" id="checkAll" title="Select all on this page"></th>
+        <th class="nocol">#</th>
+        <th class="avcol"></th>
+        <th>User</th><th>Email</th><th>Location</th><th>Country</th><th>Continent</th>
+        <th>Tech skills</th><th>Company</th><th>Followers</th><th>Repos</th><th>Created</th><th>GitHub</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="chkcol"><input type="checkbox" class="rowchk" value="{{ r.login }}"></td>
+          <td class="nocol muted">{{ (page - 1) * page_size + loop.index }}</td>
+          <td class="avcol"><a href="{{ r.html_url }}" target="_blank"><img class="avatar"
+              src="https://github.com/{{ r.login }}.png?size=40" alt="" loading="lazy"></a></td>
+          <td><a href="{{ r.html_url }}" target="_blank">{{ r.login }}</a>
+              {% if r.name %}<div class="muted">{{ r.name }}</div>{% endif %}</td>
+          <td>{{ r.email }}</td>
+          <td>{{ r.location or '' }}</td>
+          <td>{{ r.country if r.country and r.country != 'Unknown' else '' }}</td>
+          <td>{{ r.continent or '' }}</td>
+          <td>{% for s in r.tech_skills %}<span class="skill-pill">{{ s }}</span>{% endfor %}</td>
+          <td>{{ r.company or '' }}</td>
+          <td>{{ r.followers }}</td>
+          <td>{{ r.public_repos }}</td>
+          <td class="muted">{{ r.github_created.strftime('%Y-%m-%d') }}</td>
+          <td><a href="{{ r.html_url }}" target="_blank">{{ r.html_url }}</a></td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    {% set skillq = '' %}{% for s in skills %}{% set skillq = skillq ~ '&skills=' ~ s %}{% endfor %}
+    {% set base = '/users?q=' ~ q|urlencode ~ '&domain=' ~ domain ~ '&continent=' ~ continent ~ '&country=' ~ country|urlencode ~ skillq ~ '&created_after=' ~ created_after %}
+    <div class="pager">
+      {% if page > 1 %}<a class="pg" href="{{ base }}&page={{ page-1 }}">← Prev</a>{% else %}<span class="pg disabled">← Prev</span>{% endif %}
+      {% for p in page_window %}
+        {% if p == '...' %}<span class="pg gap">…</span>
+        {% elif p == page %}<span class="pg current">{{ p }}</span>
+        {% else %}<a class="pg" href="{{ base }}&page={{ p }}">{{ p }}</a>{% endif %}
+      {% endfor %}
+      {% if page < pages %}<a class="pg" href="{{ base }}&page={{ page+1 }}">Next →</a>{% else %}<span class="pg disabled">Next →</span>{% endif %}
+    </div>
+    {% else %}
+      <div class="empty">No developers match. <a href="/scrape">Start a run</a> to collect some.</div>
+    {% endif %}
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Row selection: select-all, per-row highlight, live count.
+function rowChecks() { return Array.from(document.querySelectorAll('.rowchk')); }
+function refreshSelection() {
+  const boxes = rowChecks();
+  const checked = boxes.filter(b => b.checked);
+  boxes.forEach(b => b.closest('tr').classList.toggle('selected', b.checked));
+  const all = document.getElementById('checkAll');
+  if (all) {
+    all.checked = boxes.length > 0 && checked.length === boxes.length;
+    all.indeterminate = checked.length > 0 && checked.length < boxes.length;
+  }
+  const c = document.getElementById('selCount');
+  if (c) {
+    c.textContent = checked.length ? checked.length + ' selected' : '';
+    c.style.display = checked.length ? 'inline' : 'none';
+  }
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'checkAll') rowChecks().forEach(b => b.checked = e.target.checked);
+  if (e.target.classList.contains('rowchk') || e.target.id === 'checkAll') refreshSelection();
+});
+
+// Multi-select skills dropdown open/close.
+function toggleSkills(e) {
+  e.stopPropagation();
+  document.getElementById('skillsPanel').classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  const ms = document.getElementById('skillsMs');
+  if (ms && !ms.contains(e.target))
+    document.getElementById('skillsPanel').classList.remove('open');
+});
+
+refreshSelection();
+</script>
+{% endblock %}

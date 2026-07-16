@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}History{% endblock %}
+{% block content %}
+<style>
+  .st { font-size:11px; padding:2px 9px; border-radius:12px; border:1px solid var(--border); text-transform:uppercase; letter-spacing:.03em; }
+  .st.sent { background:rgba(63,185,80,.15); color:var(--green); border-color:var(--green); }
+  .st.failed { background:rgba(248,81,73,.12); color:var(--red); border-color:var(--red); }
+  .st.skipped { color:var(--muted); }
+  .filterbar { display:flex; gap:8px; margin-bottom:14px; }
+  .filterbar a { padding:6px 12px; border-radius:6px; border:1px solid var(--border);
+                 color:var(--muted); text-decoration:none; font-size:13px; }
+  .filterbar a.on { background:rgba(47,129,247,.15); color:#79c0ff; border-color:var(--accent); }
+</style>
+
+  <div class="cards">
+    <div class="card"><h3>Total messages</h3><div class="big">{{ "{:,}".format(stats.total) }}</div></div>
+    <div class="card"><h3>Sent</h3><div class="big" style="color:var(--green)">{{ "{:,}".format(stats.sent) }}</div></div>
+    <div class="card"><h3>Failed</h3><div class="big" style="color:var(--red)">{{ "{:,}".format(stats.failed) }}</div></div>
+    <div class="card"><h3>Skipped (dry-run)</h3><div class="big muted">{{ "{:,}".format(stats.skipped) }}</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Send history <span class="muted">({{ "{:,}".format(total) }} match)</span></h2>
+    <div class="filterbar">
+      <a href="/history" class="{{ 'on' if not status else '' }}">All</a>
+      <a href="/history?status=sent" class="{{ 'on' if status == 'sent' else '' }}">Sent</a>
+      <a href="/history?status=failed" class="{{ 'on' if status == 'failed' else '' }}">Failed</a>
+      <a href="/history?status=skipped" class="{{ 'on' if status == 'skipped' else '' }}">Skipped</a>
+    </div>
+
+    {% if rows %}
+    <div style="overflow:auto">
+    <table>
+      <thead><tr>
+        <th class="nocol">#</th>
+        <th class="avcol"></th>
+        <th>User</th><th>Email</th><th>Country</th><th>Subject</th>
+        <th>Status</th><th>Plan</th><th>When</th>
+      </tr></thead>
+      <tbody>
+      {% for r in rows %}
+        <tr>
+          <td class="nocol muted">{{ (page - 1) * page_size + loop.index }}</td>
+          <td class="avcol"><a href="https://github.com/{{ r.login }}" target="_blank"><img class="avatar"
+              src="https://github.com/{{ r.login }}.png?size=40" alt="" loading="lazy"></a></td>
+          <td><a href="https://github.com/{{ r.login }}" target="_blank">{{ r.login }}</a>
+              {% if r.name %}<div class="muted">{{ r.name }}</div>{% endif %}</td>
+          <td>{{ r.email }}</td>
+          <td>{{ r.country if r.country and r.country != 'Unknown' else '' }}</td>
+          <td>{{ r.subject or '' }}</td>
+          <td><span class="st {{ r.status }}">{{ r.status }}</span>
+              {% if r.error %}<div class="muted" title="{{ r.error }}">{{ r.error[:60] }}</div>{% endif %}</td>
+          <td class="muted">{{ ('#' ~ r.plan_id) if r.plan_id else '—' }}</td>
+          <td class="muted">{{ r.sent_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    </div>
+
+    {% set base = '/history?status=' ~ status %}
+    <div class="pager">
+      {% if page > 1 %}<a class="pg" href="{{ base }}&page={{ page-1 }}">← Prev</a>{% else %}<span class="pg disabled">← Prev</span>{% endif %}
+      {% for p in page_window %}
+        {% if p == '...' %}<span class="pg gap">…</span>
+        {% elif p == page %}<span class="pg current">{{ p }}</span>
+        {% else %}<a class="pg" href="{{ base }}&page={{ p }}">{{ p }}</a>{% endif %}
+      {% endfor %}
+      {% if page < pages %}<a class="pg" href="{{ base }}&page={{ page+1 }}">Next →</a>{% else %}<span class="pg disabled">Next →</span>{% endif %}
+    </div>
+    {% else %}
+      <div class="empty">No messages yet. Head to <a href="/outreach">Outreach</a> to send some.</div>
+    {% endif %}
+  </div>
+
+{% endblock %}

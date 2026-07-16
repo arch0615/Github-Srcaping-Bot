@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Scraping{% endblock %}
+{% block content %}
+<style>
+  .yearbox { display:flex; flex-wrap:wrap; gap:8px; }
+  .yearchk { display:inline-flex; align-items:center; gap:7px; padding:7px 14px;
+             background:#0d1117; border:1px solid var(--border); border-radius:20px;
+             cursor:pointer; font-size:13px; color:var(--fg); width:auto; margin:0;
+             user-select:none; }
+  .yearchk input { width:auto; }
+  .yearchk:has(input:checked) { background:rgba(47,129,247,.15);
+             border-color:var(--accent); color:#79c0ff; }
+  .yearchk.all { border-style:dashed; font-weight:600; }
+  .ms-search { position:sticky; top:0; margin-bottom:6px; }
+  .ms-all { font-weight:600; border-bottom:1px solid var(--border); }
+</style>
+
+  <div class="panel">
+    <h2>Scrape run</h2>
+    {% if running %}
+      <div class="row">
+        <span class="muted">Running with</span>
+        {% if run.params.YEARS %}<code>years {{ run.params.YEARS }}</code>
+        {% else %}<code>created ≥ {{ run.params.START_DATE }}</code>
+          {% if run.params.END_DATE %}<code>… {{ run.params.END_DATE }}</code>{% endif %}{% endif %}
+        {% if run.params.FILTER_CONTINENTS %}<code>continents: {{ run.params.FILTER_CONTINENTS }}</code>{% endif %}
+        {% if run.params.FILTER_COUNTRIES %}<code>countries: {{ run.params.FILTER_COUNTRIES }}</code>{% endif %}
+        {% if run.params.EXTRA_QUALIFIERS %}<code>{{ run.params.EXTRA_QUALIFIERS }}</code>{% endif %}
+        <form method="post" action="/stop" style="margin-left:auto">
+          <button class="stop" type="submit">Stop</button>
+        </form>
+      </div>
+    {% else %}
+      <form class="controls" method="post" action="/run">
+        <div style="grid-column:1/-1">
+          <label>Years to scrape</label>
+          <div class="yearbox">
+            <label class="yearchk all"><input type="checkbox" class="allbox" data-target="years"> All</label>
+            {% for y in years %}
+              <label class="yearchk"><input type="checkbox" name="years" value="{{ y }}"> {{ y }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Continents (optional)</label>
+          <div class="yearbox">
+            <label class="yearchk all"><input type="checkbox" class="allbox" data-target="continents"> All</label>
+            {% for c in continents %}
+              <label class="yearchk"><input type="checkbox" name="continents" value="{{ c }}"> {{ c }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div style="grid-column:1/-1">
+          <label>Countries (optional)</label>
+          <div class="ms" id="countryMs" style="max-width:360px">
+            <button type="button" class="ms-btn" onclick="toggleCountry(event)">
+              <span id="countryLabel">All countries</span><span>▾</span>
+            </button>
+            <div class="ms-panel" id="countryPanel">
+              <input type="text" id="countrySearch" class="ms-search" placeholder="Search countries…" autocomplete="off">
+              <label class="ms-all"><input type="checkbox" class="allbox" data-target="countries"> All countries</label>
+              {% for co in countries %}
+                <label class="cn-item"><input type="checkbox" name="countries" value="{{ co }}"> {{ co }}</label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+        <div style="grid-column:1/-1"><button type="submit">▶ Start scraping</button>
+          <span class="muted" style="margin-left:10px">Pick years to scrape. Continents/countries are optional filters — leave blank to keep the default (all regions except non-India/Pakistan Asia).</span></div>
+      </form>
+    {% endif %}
+    <pre id="log">{{ '(no run output yet)' }}</pre>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Country multi-select dropdown: open/close.
+function toggleCountry(e) {
+  e.stopPropagation();
+  document.getElementById('countryPanel').classList.toggle('open');
+}
+document.addEventListener('click', (e) => {
+  const ms = document.getElementById('countryMs');
+  if (ms && !ms.contains(e.target))
+    document.getElementById('countryPanel').classList.remove('open');
+});
+
+// "All" toggles for years / continents / countries.
+function boxesNamed(name) { return Array.from(document.querySelectorAll(`input[name="${name}"]`)); }
+function updateCountryLabel() {
+  const n = boxesNamed('countries').filter(b => b.checked).length;
+  const lbl = document.getElementById('countryLabel');
+  if (lbl) lbl.textContent = n ? n + ' selected' : 'All countries';
+}
+function syncAll(name) {
+  const all = document.querySelector(`.allbox[data-target="${name}"]`);
+  if (!all) return;
+  const boxes = boxesNamed(name), checked = boxes.filter(b => b.checked).length;
+  all.checked = boxes.length > 0 && checked === boxes.length;
+  all.indeterminate = checked > 0 && checked < boxes.length;
+}
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('allbox')) {
+    const name = e.target.dataset.target;
+    boxesNamed(name).forEach(b => b.checked = e.target.checked);
+    e.target.indeterminate = false;
+    if (name === 'countries') updateCountryLabel();
+  } else if (e.target.name && ['years', 'continents', 'countries'].includes(e.target.name)) {
+    syncAll(e.target.name);
+    if (e.target.name === 'countries') updateCountryLabel();
+  }
+});
+
+// Live search within the country dropdown.
+document.getElementById('countrySearch')?.addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  document.querySelectorAll('#countryPanel .cn-item').forEach(item => {
+    item.style.display = item.textContent.toLowerCase().includes(q) ? '' : 'none';
+  });
+});
+
+// Stream the run log; reload when a run finishes so the form returns.
+let wasRunning = {{ 'true' if running else 'false' }};
+window.onStatus = (s) => {
+  const log = document.getElementById('log');
+  if (log && s.log) { log.textContent = s.log; log.scrollTop = log.scrollHeight; }
+  if (wasRunning && !s.running) { location.reload(); return; }
+  wasRunning = s.running;
+};
+</script>
+{% endblock %}

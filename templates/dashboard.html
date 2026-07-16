@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+<style>
+  .chart-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+                gap:16px; margin-bottom:24px; }
+  .chart-card { background:var(--panel); border:1px solid var(--border);
+                border-radius:10px; padding:16px; }
+  .chart-card h3 { margin:0 0 12px; font-size:13px; color:var(--muted);
+                   text-transform:uppercase; letter-spacing:.04em; }
+  .chart-box { position:relative; height:260px; }
+</style>
+
+  {% if not stats.ready %}
+  <div class="panel" style="border-color:var(--accent)">
+    Database is empty / not initialised yet. Head to
+    <a href="/scrape">Scraping</a> to start a run.
+  </div>
+  {% endif %}
+
+  <!-- Summary cards -->
+  <div class="cards">
+    <div class="card">
+      <h3>Developers collected</h3>
+      <div class="big">{{ "{:,}".format(stats.total) }}</div>
+      <div class="muted">last update:
+        {{ stats.latest.strftime('%Y-%m-%d %H:%M') if stats.latest else '—' }}</div>
+    </div>
+    <div class="card">
+      <h3>Top countries</h3>
+      {% for co in stats.countries %}
+        <div class="bar"><a href="/users?country={{ co.country|urlencode }}" style="color:inherit;text-decoration:none">{{ co.country }}</a><span class="n">{{ co.c }}</span></div>
+      {% else %}<div class="muted">—</div>{% endfor %}
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="chart-grid">
+    <div class="chart-card">
+      <h3>Developers by account-creation year</h3>
+      <div class="chart-box"><canvas id="yearlyChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>By continent</h3>
+      <div class="chart-box"><canvas id="continentChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Top countries</h3>
+      <div class="chart-box"><canvas id="countryChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Top tech skills</h3>
+      <div class="chart-box"><canvas id="skillsChart"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <h3>Email providers</h3>
+      <div class="chart-box"><canvas id="providerChart"></canvas></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <a href="/scrape"><button type="button">▶ Go to Scraping</button></a>
+      <a href="/users"><button type="button" class="secondary">View all users →</button></a>
+    </div>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='chart.umd.min.js') }}"></script>
+<script>
+const YEARLY    = {{ stats.yearly|tojson }};
+const CONTINENT = {{ stats.continents|tojson }};
+const COUNTRY   = {{ stats.countries|tojson }};
+const SKILLS    = {{ stats.skills|tojson }};
+const PROVIDERS = {{ stats.providers|tojson }};
+
+const PALETTE = ['#2f81f7','#3fb950','#db6d28','#a371f7','#f778ba','#e3b341',
+                 '#39c5cf','#f85149','#79c0ff','#56d364'];
+Chart.defaults.color = '#8b949e';
+Chart.defaults.borderColor = 'rgba(240,246,252,0.06)';
+Chart.defaults.font.family = "-apple-system,Segoe UI,Roboto,sans-serif";
+
+function noData(id) {
+  const c = document.getElementById(id);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#8b949e'; ctx.font = '13px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('No data yet', c.width / 2, 40);
+}
+
+// 1) Yearly — bar
+if (YEARLY.length) {
+  new Chart('yearlyChart', {
+    type: 'bar',
+    data: { labels: YEARLY.map(r => r.yr),
+            datasets: [{ label: 'Developers', data: YEARLY.map(r => r.c),
+                         backgroundColor: '#2f81f7', borderRadius: 5 }] },
+    options: { responsive: true, maintainAspectRatio: false,
+               plugins: { legend: { display: false } },
+               scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+} else noData('yearlyChart');
+
+// 2) Continent — doughnut
+if (CONTINENT.length) {
+  new Chart('continentChart', {
+    type: 'doughnut',
+    data: { labels: CONTINENT.map(r => r.continent),
+            datasets: [{ data: CONTINENT.map(r => r.c), backgroundColor: PALETTE }] },
+    options: { responsive: true, maintainAspectRatio: false,
+               plugins: { legend: { position: 'right' } } }
+  });
+} else noData('continentChart');
+
+// 2b) Country — horizontal bar
+if (COUNTRY.length) {
+  new Chart('countryChart', {
+    type: 'bar',
+    data: { labels: COUNTRY.map(r => r.country),
+            datasets: [{ label: 'Developers', data: COUNTRY.map(r => r.c),
+                         backgroundColor: '#db6d28', borderRadius: 5 }] },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+               plugins: { legend: { display: false } },
+               scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+} else noData('countryChart');
+
+// 3) Skills — horizontal bar
+if (SKILLS.length) {
+  new Chart('skillsChart', {
+    type: 'bar',
+    data: { labels: SKILLS.map(r => r.skill),
+            datasets: [{ label: 'Developers', data: SKILLS.map(r => r.c),
+                         backgroundColor: '#3fb950', borderRadius: 5 }] },
+    options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+               plugins: { legend: { display: false } },
+               scales: { x: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+} else noData('skillsChart');
+
+// 4) Providers — pie
+if (PROVIDERS.length) {
+  new Chart('providerChart', {
+    type: 'pie',
+    data: { labels: PROVIDERS.map(r => r.email_domain),
+            datasets: [{ data: PROVIDERS.map(r => r.c), backgroundColor: PALETTE }] },
+    options: { responsive: true, maintainAspectRatio: false,
+               plugins: { legend: { position: 'right' } } }
+  });
+} else noData('providerChart');
+</script>
+{% endblock %}
