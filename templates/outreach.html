@@ -12,6 +12,8 @@
   .banner { border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:13px; }
   .banner.warn { background:rgba(227,179,65,.12); border:1px solid #e3b341; color:#e3b341; }
   .banner.ok   { background:rgba(63,185,80,.12); border:1px solid var(--green); color:var(--green); }
+  .panel-head { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; }
+  .panel-head h2 { margin:0; }
   .plan-item { border-bottom:1px solid var(--border); }
   .plan-item:last-child { border-bottom:0; }
   .plan-row { display:grid; grid-template-columns:auto 1fr auto auto; gap:12px; align-items:center;
@@ -20,9 +22,6 @@
   .actions form { margin:0; }
   .actions button { padding:6px 12px; font-size:13px; }
   button.danger { background:transparent; color:var(--red); border-color:var(--red); }
-  .edit-box { display:none; padding:0 0 16px; }
-  .edit-box.open { display:block; }
-  .edit-box .plan-form { margin-top:4px; }
   .badge { font-size:11px; padding:2px 9px; border-radius:12px; border:1px solid var(--border); text-transform:uppercase; letter-spacing:.03em; }
   .badge.draft { color:var(--muted); }
   .badge.sending { background:rgba(47,129,247,.15); color:#79c0ff; border-color:var(--accent); }
@@ -32,6 +31,17 @@
   .plan-meta .muted { font-size:12px; }
   .counts { font-size:12px; font-variant-numeric:tabular-nums; }
   .counts .s { color:var(--green); } .counts .f { color:var(--red); } .counts .k { color:var(--muted); }
+  /* create / edit modal */
+  dialog.modal { background:var(--panel); color:var(--fg); border:1px solid var(--border);
+                 border-radius:12px; padding:22px; width:min(680px, 92vw);
+                 box-shadow:0 20px 60px rgba(0,0,0,.6); }
+  dialog.modal::backdrop { background:rgba(1,4,9,.6); }
+  .modal .plan-form { margin:0; }
+  .modal-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:2px; }
+  .modal-head h2 { margin:0; }
+  .modal .x { background:transparent; border:0; color:var(--muted); font-size:20px;
+              line-height:1; cursor:pointer; padding:2px 6px; font-weight:400; }
+  .modal-actions { display:flex; gap:10px; margin-top:4px; }
 </style>
 
   {% if smtp_ready %}
@@ -44,10 +54,77 @@
       SMTP_PASS / FROM_EMAIL</code> in <code>.env</code> to go live.</div>
   {% endif %}
 
-  <!-- 1) Weekly plan builder -->
+  <!-- Plans list (main content) + create button top-right -->
   <div class="panel">
-    <h2>① Make this week's plan</h2>
-    <form class="plan-form" method="post" action="/outreach/plan">
+    <div class="panel-head">
+      <h2>Plans &amp; auto-send</h2>
+      <button type="button" onclick="openCreate()">＋ Create plan</button>
+    </div>
+
+    {% if sending %}
+    <div class="row" style="margin-bottom:10px">
+      <span class="badge sending">sending plan #{{ sending_plan }}</span>
+      <form method="post" action="/outreach/stop" style="margin-left:auto">
+        <button class="stop" type="submit">Stop</button>
+      </form>
+    </div>
+    {% endif %}
+
+    {% for p in plans %}
+      {% set editable = not sending and p.status in ('draft', 'stopped') %}
+      <div class="plan-item">
+        <div class="plan-row">
+          <span class="badge {{ p.status }}">{{ p.status }}</span>
+          <div class="plan-meta">
+            <b>#{{ p.id }}</b> ·
+            {{ p.continent or 'Any continent' }}{% if p.country %} / {{ p.country }}{% endif %}
+            · target {{ p.send_count }}
+            <div class="muted">week of {{ p.week_start }} — “{{ p.subject }}”</div>
+          </div>
+          <div class="counts">
+            <span class="s">{{ p.sent_n }} sent</span>
+            {% if p.failed_n %}· <span class="f">{{ p.failed_n }} failed</span>{% endif %}
+            {% if p.skipped_n %}· <span class="k">{{ p.skipped_n }} skipped</span>{% endif %}
+          </div>
+          <div class="actions">
+            {% if editable %}
+              <form method="post" action="/outreach/send/{{ p.id }}">
+                <button type="submit">▶ {{ 'Resume' if p.status == 'stopped' else 'Send now' }}</button>
+              </form>
+              <button type="button" class="secondary"
+                      data-id="{{ p.id }}"
+                      data-continent="{{ p.continent or '' }}"
+                      data-country="{{ p.country or '' }}"
+                      data-count="{{ p.send_count }}"
+                      data-subject="{{ p.subject }}"
+                      data-body="{{ p.body }}"
+                      onclick="openEdit(this)">Edit</button>
+            {% elif p.status == 'done' %}
+              <span class="muted">✓ done</span>
+            {% endif %}
+            {% if not (sending and sending_plan == p.id) %}
+              <form method="post" action="/outreach/plan/{{ p.id }}/delete"
+                    onsubmit="return confirm('Delete plan #{{ p.id }}? Sent-message history is kept.');">
+                <button type="submit" class="danger">Delete</button>
+              </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    {% else %}
+      <div class="muted">No plans yet. Click <b>Create plan</b> to make one.</div>
+    {% endfor %}
+
+    <pre id="sendlog" style="display:{{ 'block' if sending else 'none' }}">{{ '(no send output yet)' }}</pre>
+  </div>
+
+  <!-- Create / edit plan modal -->
+  <dialog id="planDialog" class="modal">
+    <form class="plan-form" id="planForm" method="post" action="/outreach/plan">
+      <div class="full modal-head">
+        <h2 id="planTitle">Create plan</h2>
+        <button type="button" class="x" onclick="closePlan()" aria-label="Close">✕</button>
+      </div>
       <div>
         <label>Continent</label>
         <select name="continent" id="f-continent">
@@ -70,118 +147,60 @@
           <b id="eligN">…</b> developer(s) match this filter.</div>
       <div class="full">
         <label>Subject</label>
-        <input name="subject" value="{{ default_subject }}">
+        <input name="subject" id="f-subject" value="{{ default_subject }}">
       </div>
       <div class="full">
         <label>Message</label>
-        <textarea name="body">{{ default_body }}</textarea>
+        <textarea name="body" id="f-body">{{ default_body }}</textarea>
         <div class="muted tokens" style="margin-top:6px">Tokens you can use:
           <code>{name}</code> <code>{first_name}</code> <code>{login}</code>
           <code>{country}</code> <code>{location}</code></div>
       </div>
-      <div class="full"><button type="submit">＋ Create plan</button></div>
+      <div class="full modal-actions">
+        <button type="submit" id="planSubmit">＋ Create plan</button>
+        <button type="button" class="secondary" onclick="closePlan()">Cancel</button>
+      </div>
     </form>
-  </div>
-
-  <!-- 2) Plans + send -->
-  <div class="panel">
-    <h2>② Plans &amp; auto-send</h2>
-    {% if sending %}
-    <div class="row" style="margin-bottom:10px">
-      <span class="badge sending">sending plan #{{ sending_plan }}</span>
-      <form method="post" action="/outreach/stop" style="margin-left:auto">
-        <button class="stop" type="submit">Stop</button>
-      </form>
-    </div>
-    {% endif %}
-
-    {% for p in plans %}
-      {% set editable = not sending and p.status in ('draft', 'stopped') %}
-      <div class="plan-item">
-      <div class="plan-row">
-        <span class="badge {{ p.status }}">{{ p.status }}</span>
-        <div class="plan-meta">
-          <b>#{{ p.id }}</b> ·
-          {{ p.continent or 'Any continent' }}{% if p.country %} / {{ p.country }}{% endif %}
-          · target {{ p.send_count }}
-          <div class="muted">week of {{ p.week_start }} — “{{ p.subject }}”</div>
-        </div>
-        <div class="counts">
-          <span class="s">{{ p.sent_n }} sent</span>
-          {% if p.failed_n %}· <span class="f">{{ p.failed_n }} failed</span>{% endif %}
-          {% if p.skipped_n %}· <span class="k">{{ p.skipped_n }} skipped</span>{% endif %}
-        </div>
-        <div class="actions">
-          {% if editable %}
-            <form method="post" action="/outreach/send/{{ p.id }}">
-              <button type="submit">▶ {{ 'Resume' if p.status == 'stopped' else 'Send now' }}</button>
-            </form>
-            <button type="button" class="secondary" onclick="toggleEdit({{ p.id }})">Edit</button>
-          {% elif p.status == 'done' %}
-            <span class="muted">✓ done</span>
-          {% endif %}
-          {% if not (sending and sending_plan == p.id) %}
-            <form method="post" action="/outreach/plan/{{ p.id }}/delete"
-                  onsubmit="return confirm('Delete plan #{{ p.id }}? Sent-message history is kept.');">
-              <button type="submit" class="danger">Delete</button>
-            </form>
-          {% endif %}
-        </div>
-      </div>
-
-      {% if editable %}
-      <div class="edit-box" id="edit-{{ p.id }}">
-        <form class="plan-form" method="post" action="/outreach/plan/{{ p.id }}">
-          <div>
-            <label>Continent</label>
-            <select name="continent">
-              <option value="">Any continent</option>
-              {% for c in continents %}<option value="{{ c }}" {{ 'selected' if c == p.continent else '' }}>{{ c }}</option>{% endfor %}
-            </select>
-          </div>
-          <div>
-            <label>Country</label>
-            <select name="country">
-              <option value="">Any country</option>
-              {% for co in country_options %}<option value="{{ co }}" {{ 'selected' if co == p.country else '' }}>{{ co }}</option>{% endfor %}
-            </select>
-          </div>
-          <div>
-            <label>How many to send</label>
-            <input type="number" name="send_count" min="1" value="{{ p.send_count }}">
-          </div>
-          <div class="full">
-            <label>Subject</label>
-            <input name="subject" value="{{ p.subject }}">
-          </div>
-          <div class="full">
-            <label>Message</label>
-            <textarea name="body">{{ p.body }}</textarea>
-          </div>
-          <div class="full">
-            <button type="submit">Save changes</button>
-            <button type="button" class="secondary" onclick="toggleEdit({{ p.id }})">Cancel</button>
-          </div>
-        </form>
-      </div>
-      {% endif %}
-      </div>
-    {% else %}
-      <div class="muted">No plans yet. Create one above.</div>
-    {% endfor %}
-
-    <pre id="sendlog" style="display:{{ 'block' if sending else 'none' }}">{{ '(no send output yet)' }}</pre>
-  </div>
+  </dialog>
 
 {% endblock %}
 
 {% block scripts %}
 <script>
-// Toggle a plan's inline edit form.
-function toggleEdit(id) {
-  const box = document.getElementById('edit-' + id);
-  if (box) box.classList.toggle('open');
+const DEFAULTS = { subject: {{ default_subject|tojson }}, body: {{ default_body|tojson }} };
+const dlg = document.getElementById('planDialog');
+const planForm = document.getElementById('planForm');
+
+function setFields(v) {
+  document.getElementById('f-continent').value = v.continent || '';
+  document.getElementById('f-country').value = v.country || '';
+  document.getElementById('f-count').value = v.count || 20;
+  document.getElementById('f-subject').value = v.subject || '';
+  document.getElementById('f-body').value = v.body || '';
 }
+
+function openCreate() {
+  planForm.action = '/outreach/plan';
+  document.getElementById('planTitle').textContent = 'Create plan';
+  document.getElementById('planSubmit').textContent = '＋ Create plan';
+  setFields({ continent: '', country: '', count: 20, subject: DEFAULTS.subject, body: DEFAULTS.body });
+  dlg.showModal();
+  updateEligible();
+}
+
+function openEdit(btn) {
+  const d = btn.dataset;
+  planForm.action = '/outreach/plan/' + d.id;
+  document.getElementById('planTitle').textContent = 'Edit plan #' + d.id;
+  document.getElementById('planSubmit').textContent = 'Save changes';
+  setFields({ continent: d.continent, country: d.country, count: d.count, subject: d.subject, body: d.body });
+  dlg.showModal();
+  updateEligible();
+}
+
+function closePlan() { dlg.close(); }
+// Click on the backdrop (outside the form) closes the dialog.
+dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
 
 // Live eligible-count preview as filters change.
 async function updateEligible() {
@@ -197,7 +216,6 @@ async function updateEligible() {
 }
 document.getElementById('f-continent').addEventListener('change', updateEligible);
 document.getElementById('f-country').addEventListener('change', updateEligible);
-updateEligible();
 
 // Stream the send log; reload the page when a send finishes so counts refresh.
 let wasSending = {{ 'true' if sending else 'false' }};
