@@ -268,19 +268,28 @@ def fetch_plan(cur, plan_id):
     return cur.fetchone()
 
 
-def fetch_history(cur, status, page):
+def fetch_history(cur, status, continent, country, page):
     where, params = [], []
     if status:
-        where.append("status = %s")
+        where.append("m.status = %s")
         params.append(status)
+    if country:
+        where.append("m.country = %s")
+        params.append(country)
+    # outreach_messages has no continent column, so join developers by login
+    # (unique) to filter on it. The join is only added when needed.
+    join = "JOIN developers d ON d.login = m.login" if continent else ""
+    if continent:
+        where.append("d.continent = %s")
+        params.append(continent)
     clause = ("WHERE " + " AND ".join(where)) if where else ""
-    cur.execute(f"SELECT count(*) FROM outreach_messages {clause}", params)
+    cur.execute(f"SELECT count(*) FROM outreach_messages m {join} {clause}", params)
     total = _scalar(cur)
     cur.execute(
-        f"""SELECT id, plan_id, login, email, name, country, subject,
-                   status, error, sent_at
-            FROM outreach_messages {clause}
-            ORDER BY sent_at DESC LIMIT %s OFFSET %s""",
+        f"""SELECT m.id, m.plan_id, m.login, m.email, m.name, m.country, m.subject,
+                   m.status, m.error, m.sent_at
+            FROM outreach_messages m {join} {clause}
+            ORDER BY m.sent_at DESC LIMIT %s OFFSET %s""",
         params + [PAGE_SIZE, (page - 1) * PAGE_SIZE],
     )
     return cur.fetchall(), total
@@ -581,13 +590,17 @@ def outreach_status():
 @app.route("/history")
 def history_page():
     status_filter = request.args.get("status", "").strip()
+    continent = request.args.get("continent", "").strip()
+    country = request.args.get("country", "").strip()
     try:
         page = max(1, int(request.args.get("page", "1")))
     except ValueError:
         page = 1
     conn = db()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        rows, total = fetch_history(cur, status_filter, page)
+        country_options = fetch_country_options(cur)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        rows, total = fetch_history(cur, status_filter, continent, country, page)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         stats = history_stats(cur)
     conn.close()
@@ -596,7 +609,10 @@ def history_page():
         "history.html", active="history",
         rows=rows, total=total, page=page, pages=pages,
         page_size=PAGE_SIZE, page_window=page_window(page, pages),
-        status=status_filter, stats=stats,
+        status=status_filter, continent=continent, country=country,
+        continents=[c for c in CONTINENTS if c != "Unknown"],
+        country_options=country_options,
+        stats=stats,
         running=is_running(), run=_run,
     )
 

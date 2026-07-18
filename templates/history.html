@@ -6,10 +6,31 @@
   .st.sent { background:rgba(63,185,80,.15); color:var(--green); border-color:var(--green); }
   .st.failed { background:rgba(248,81,73,.12); color:var(--red); border-color:var(--red); }
   .st.skipped { color:var(--muted); }
-  .filterbar { display:flex; gap:8px; margin-bottom:14px; }
+  .filters-row { display:flex; gap:10px 14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+  .filterbar { display:flex; gap:8px; align-items:center; margin:0; }
   .filterbar a { padding:6px 12px; border-radius:6px; border:1px solid var(--border);
                  color:var(--muted); text-decoration:none; font-size:13px; }
   .filterbar a.on { background:rgba(47,129,247,.15); color:#79c0ff; border-color:var(--accent); }
+  .geo-filter { display:flex; gap:8px; align-items:center; margin:0; }
+  .geo-filter .clear { padding:6px 12px; font-size:13px; color:var(--muted); text-decoration:none; }
+  /* searchable single-select combobox */
+  .ss { position:relative; }
+  .ss-btn { min-width:160px; text-align:left; background:#0d1117; color:var(--fg);
+            border:1px solid var(--border); border-radius:6px; padding:8px 10px; font-weight:400;
+            cursor:pointer; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ss-btn .caret { color:var(--muted); font-size:11px; }
+  .ss-panel { display:none; position:absolute; z-index:20; top:calc(100% + 4px); left:0;
+              min-width:220px; max-height:288px; overflow:auto; background:var(--panel);
+              border:1px solid var(--border); border-radius:8px; padding:6px;
+              box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  .ss-panel.open { display:block; }
+  .ss-search { width:100%; margin-bottom:6px; padding:7px 9px; box-sizing:border-box;
+               background:#0d1117; color:var(--fg); border:1px solid var(--border);
+               border-radius:6px; font:inherit; }
+  .ss-opt { padding:6px 9px; border-radius:5px; font-size:13px; cursor:pointer; white-space:nowrap; }
+  .ss-opt:hover { background:#21262d; }
+  .ss-opt.sel { color:#79c0ff; }
+  .ss-none { padding:6px 9px; font-size:13px; color:var(--muted); }
 </style>
 
   <div class="cards">
@@ -20,18 +41,58 @@
   </div>
 
   <div class="panel">
-    <h2>Send history <span class="muted">({{ "{:,}".format(total) }} match)</span></h2>
-    <div class="filterbar">
-      <a href="/history" class="{{ 'on' if not status else '' }}">All</a>
-      <a href="/history?status=sent" class="{{ 'on' if status == 'sent' else '' }}">Sent</a>
-      <a href="/history?status=failed" class="{{ 'on' if status == 'failed' else '' }}">Failed</a>
-      <a href="/history?status=skipped" class="{{ 'on' if status == 'skipped' else '' }}">Skipped</a>
+    <h2>Send history <span class="muted">({{ "{:,}".format(total) }} match)</span>
+        <span id="selCount" class="pill on" style="margin-left:8px"></span></h2>
+
+    {# geo query suffix, kept on the status pills so switching status preserves the region filter #}
+    {% set geo = '&continent=' ~ continent|urlencode ~ '&country=' ~ country|urlencode %}
+    <div class="filters-row">
+      <div class="filterbar">
+        <a href="/history?status={{ geo }}" class="{{ 'on' if not status else '' }}">All</a>
+        <a href="/history?status=sent{{ geo }}" class="{{ 'on' if status == 'sent' else '' }}">Sent</a>
+        <a href="/history?status=failed{{ geo }}" class="{{ 'on' if status == 'failed' else '' }}">Failed</a>
+        <a href="/history?status=skipped{{ geo }}" class="{{ 'on' if status == 'skipped' else '' }}">Skipped</a>
+      </div>
+      <form class="geo-filter" method="get" action="/history">
+        <input type="hidden" name="status" value="{{ status }}">
+        <div class="ss">
+          <input type="hidden" name="continent" value="{{ continent }}">
+          <button type="button" class="ss-btn">
+            <span class="ss-label">{{ continent or 'All continents' }}</span><span class="caret">▾</span>
+          </button>
+          <div class="ss-panel">
+            <input type="text" class="ss-search" placeholder="Search continents…" autocomplete="off">
+            <div class="ss-opt {{ 'sel' if not continent else '' }}" data-value="">All continents</div>
+            {% for c in continents %}
+              <div class="ss-opt {{ 'sel' if c == continent else '' }}" data-value="{{ c }}">{{ c }}</div>
+            {% endfor %}
+            <div class="ss-none" style="display:none">No match</div>
+          </div>
+        </div>
+        <div class="ss">
+          <input type="hidden" name="country" value="{{ country }}">
+          <button type="button" class="ss-btn">
+            <span class="ss-label">{{ country or 'All countries' }}</span><span class="caret">▾</span>
+          </button>
+          <div class="ss-panel">
+            <input type="text" class="ss-search" placeholder="Search countries…" autocomplete="off">
+            <div class="ss-opt {{ 'sel' if not country else '' }}" data-value="">All countries</div>
+            {% for co in country_options %}
+              <div class="ss-opt {{ 'sel' if co == country else '' }}" data-value="{{ co }}">{{ co }}</div>
+            {% endfor %}
+            <div class="ss-none" style="display:none">No match</div>
+          </div>
+        </div>
+        <button type="submit">Filter</button>
+        {% if continent or country %}<a class="clear" href="/history?status={{ status }}">Clear region</a>{% endif %}
+      </form>
     </div>
 
     {% if rows %}
     <div style="overflow:auto">
     <table>
       <thead><tr>
+        <th class="chkcol"><input type="checkbox" id="checkAll" title="Select all on this page"></th>
         <th class="nocol">#</th>
         <th class="avcol"></th>
         <th>User</th><th>Email</th><th>Country</th><th>Subject</th>
@@ -40,6 +101,7 @@
       <tbody>
       {% for r in rows %}
         <tr>
+          <td class="chkcol"><input type="checkbox" class="rowchk" value="{{ r.login }}"></td>
           <td class="nocol muted">{{ (page - 1) * page_size + loop.index }}</td>
           <td class="avcol"><a href="https://github.com/{{ r.login }}" target="_blank"><img class="avatar"
               src="https://github.com/{{ r.login }}.png?size=40" alt="" loading="lazy"></a></td>
@@ -58,7 +120,7 @@
     </table>
     </div>
 
-    {% set base = '/history?status=' ~ status %}
+    {% set base = '/history?status=' ~ status ~ geo %}
     <div class="pager">
       {% if page > 1 %}<a class="pg" href="{{ base }}&page={{ page-1 }}">← Prev</a>{% else %}<span class="pg disabled">← Prev</span>{% endif %}
       {% for p in page_window %}
@@ -69,8 +131,84 @@
       {% if page < pages %}<a class="pg" href="{{ base }}&page={{ page+1 }}">Next →</a>{% else %}<span class="pg disabled">Next →</span>{% endif %}
     </div>
     {% else %}
-      <div class="empty">No messages yet. Head to <a href="/outreach">Outreach</a> to send some.</div>
+      <div class="empty">No messages match. Head to <a href="/outreach">Outreach</a> to send some.</div>
     {% endif %}
   </div>
 
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Searchable single-select comboboxes (continent / country).
+document.querySelectorAll('.ss').forEach(function (ss) {
+  const btn    = ss.querySelector('.ss-btn');
+  const panel  = ss.querySelector('.ss-panel');
+  const search = ss.querySelector('.ss-search');
+  const hidden = ss.querySelector('input[type=hidden]');
+  const label  = ss.querySelector('.ss-label');
+  const none   = ss.querySelector('.ss-none');
+  const opts   = Array.from(ss.querySelectorAll('.ss-opt'));
+
+  function applyFilter(q) {
+    q = q.trim().toLowerCase();
+    let shown = 0;
+    opts.forEach(function (o) {
+      const hit = o.textContent.toLowerCase().indexOf(q) !== -1;
+      o.style.display = hit ? '' : 'none';
+      if (hit) shown++;
+    });
+    none.style.display = shown ? 'none' : 'block';
+  }
+  function open()  { panel.classList.add('open'); search.value = ''; applyFilter(''); search.focus(); }
+  function close() { panel.classList.remove('open'); }
+
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    panel.classList.contains('open') ? close() : open();
+  });
+  search.addEventListener('input', function () { applyFilter(search.value); });
+  search.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+  opts.forEach(function (o) {
+    o.addEventListener('click', function () {
+      hidden.value = o.dataset.value;
+      label.textContent = o.textContent;
+      opts.forEach(function (x) { x.classList.toggle('sel', x === o); });
+      close();
+    });
+  });
+});
+document.addEventListener('click', function (e) {
+  document.querySelectorAll('.ss').forEach(function (ss) {
+    if (!ss.contains(e.target)) ss.querySelector('.ss-panel').classList.remove('open');
+  });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape')
+    document.querySelectorAll('.ss-panel').forEach(function (p) { p.classList.remove('open'); });
+});
+
+// Row selection: select-all, per-row highlight, live count.
+function rowChecks() { return Array.from(document.querySelectorAll('.rowchk')); }
+function refreshSelection() {
+  const boxes = rowChecks();
+  const checked = boxes.filter(b => b.checked);
+  boxes.forEach(b => b.closest('tr').classList.toggle('selected', b.checked));
+  const all = document.getElementById('checkAll');
+  if (all) {
+    all.checked = boxes.length > 0 && checked.length === boxes.length;
+    all.indeterminate = checked.length > 0 && checked.length < boxes.length;
+  }
+  const c = document.getElementById('selCount');
+  if (c) {
+    c.textContent = checked.length ? checked.length + ' selected' : '';
+    c.style.display = checked.length ? 'inline' : 'none';
+  }
+}
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'checkAll') rowChecks().forEach(b => b.checked = e.target.checked);
+  if (e.target.classList.contains('rowchk') || e.target.id === 'checkAll') refreshSelection();
+});
+
+refreshSelection();
+</script>
 {% endblock %}
