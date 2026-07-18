@@ -12,9 +12,17 @@
   .banner { border-radius:8px; padding:10px 14px; margin-bottom:16px; font-size:13px; }
   .banner.warn { background:rgba(227,179,65,.12); border:1px solid #e3b341; color:#e3b341; }
   .banner.ok   { background:rgba(63,185,80,.12); border:1px solid var(--green); color:var(--green); }
+  .plan-item { border-bottom:1px solid var(--border); }
+  .plan-item:last-child { border-bottom:0; }
   .plan-row { display:grid; grid-template-columns:auto 1fr auto auto; gap:12px; align-items:center;
-              padding:12px 0; border-bottom:1px solid var(--border); }
-  .plan-row:last-child { border-bottom:0; }
+              padding:12px 0; }
+  .actions { display:flex; gap:8px; align-items:center; justify-content:flex-end; }
+  .actions form { margin:0; }
+  .actions button { padding:6px 12px; font-size:13px; }
+  button.danger { background:transparent; color:var(--red); border-color:var(--red); }
+  .edit-box { display:none; padding:0 0 16px; }
+  .edit-box.open { display:block; }
+  .edit-box .plan-form { margin-top:4px; }
   .badge { font-size:11px; padding:2px 9px; border-radius:12px; border:1px solid var(--border); text-transform:uppercase; letter-spacing:.03em; }
   .badge.draft { color:var(--muted); }
   .badge.sending { background:rgba(47,129,247,.15); color:#79c0ff; border-color:var(--accent); }
@@ -88,6 +96,8 @@
     {% endif %}
 
     {% for p in plans %}
+      {% set editable = not sending and p.status in ('draft', 'stopped') %}
+      <div class="plan-item">
       <div class="plan-row">
         <span class="badge {{ p.status }}">{{ p.status }}</span>
         <div class="plan-meta">
@@ -101,17 +111,60 @@
           {% if p.failed_n %}· <span class="f">{{ p.failed_n }} failed</span>{% endif %}
           {% if p.skipped_n %}· <span class="k">{{ p.skipped_n }} skipped</span>{% endif %}
         </div>
-        <div>
-          {% if not sending and p.status in ('draft', 'stopped') %}
+        <div class="actions">
+          {% if editable %}
             <form method="post" action="/outreach/send/{{ p.id }}">
               <button type="submit">▶ {{ 'Resume' if p.status == 'stopped' else 'Send now' }}</button>
             </form>
+            <button type="button" class="secondary" onclick="toggleEdit({{ p.id }})">Edit</button>
           {% elif p.status == 'done' %}
             <span class="muted">✓ done</span>
-          {% else %}
-            <span class="muted">—</span>
+          {% endif %}
+          {% if not (sending and sending_plan == p.id) %}
+            <form method="post" action="/outreach/plan/{{ p.id }}/delete"
+                  onsubmit="return confirm('Delete plan #{{ p.id }}? Sent-message history is kept.');">
+              <button type="submit" class="danger">Delete</button>
+            </form>
           {% endif %}
         </div>
+      </div>
+
+      {% if editable %}
+      <div class="edit-box" id="edit-{{ p.id }}">
+        <form class="plan-form" method="post" action="/outreach/plan/{{ p.id }}">
+          <div>
+            <label>Continent</label>
+            <select name="continent">
+              <option value="">Any continent</option>
+              {% for c in continents %}<option value="{{ c }}" {{ 'selected' if c == p.continent else '' }}>{{ c }}</option>{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>Country</label>
+            <select name="country">
+              <option value="">Any country</option>
+              {% for co in country_options %}<option value="{{ co }}" {{ 'selected' if co == p.country else '' }}>{{ co }}</option>{% endfor %}
+            </select>
+          </div>
+          <div>
+            <label>How many to send</label>
+            <input type="number" name="send_count" min="1" value="{{ p.send_count }}">
+          </div>
+          <div class="full">
+            <label>Subject</label>
+            <input name="subject" value="{{ p.subject }}">
+          </div>
+          <div class="full">
+            <label>Message</label>
+            <textarea name="body">{{ p.body }}</textarea>
+          </div>
+          <div class="full">
+            <button type="submit">Save changes</button>
+            <button type="button" class="secondary" onclick="toggleEdit({{ p.id }})">Cancel</button>
+          </div>
+        </form>
+      </div>
+      {% endif %}
       </div>
     {% else %}
       <div class="muted">No plans yet. Create one above.</div>
@@ -124,6 +177,12 @@
 
 {% block scripts %}
 <script>
+// Toggle a plan's inline edit form.
+function toggleEdit(id) {
+  const box = document.getElementById('edit-' + id);
+  if (box) box.classList.toggle('open');
+}
+
 // Live eligible-count preview as filters change.
 async function updateEligible() {
   const cont = document.getElementById('f-continent').value;

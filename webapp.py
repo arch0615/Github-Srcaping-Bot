@@ -490,6 +490,48 @@ def outreach_create_plan():
     return redirect(url_for("outreach_page"))
 
 
+@app.route("/outreach/plan/<int:plan_id>", methods=["POST"])
+def outreach_update_plan(plan_id):
+    """Edit a plan's filter/count/template. Only draft or stopped plans may be
+    edited — never the one currently sending, nor a finished (done) plan."""
+    conn = db()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        plan = fetch_plan(cur, plan_id)
+        editable = (plan and plan["status"] in ("draft", "stopped")
+                    and not (is_sending() and _send["plan_id"] == plan_id))
+        if editable:
+            continent = request.form.get("continent", "").strip() or None
+            country = request.form.get("country", "").strip() or None
+            subject = request.form.get("subject", "").strip() or DEFAULT_SUBJECT
+            body = request.form.get("body", "").strip() or DEFAULT_BODY
+            try:
+                count = max(0, int(request.form.get("send_count", "0").strip() or "0"))
+            except ValueError:
+                count = 0
+            cur.execute(
+                """UPDATE outreach_plans
+                       SET continent = %s, country = %s, send_count = %s,
+                           subject = %s, body = %s
+                     WHERE id = %s""",
+                (continent, country, count, subject, body, plan_id),
+            )
+    conn.close()
+    return redirect(url_for("outreach_page"))
+
+
+@app.route("/outreach/plan/<int:plan_id>/delete", methods=["POST"])
+def outreach_delete_plan(plan_id):
+    """Delete a plan. Sent-message history is preserved (its plan_id is set to
+    NULL by the FK's ON DELETE SET NULL). The plan mid-send cannot be deleted."""
+    if is_sending() and _send["plan_id"] == plan_id:
+        return redirect(url_for("outreach_page"))
+    conn = db()
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM outreach_plans WHERE id = %s", (plan_id,))
+    conn.close()
+    return redirect(url_for("outreach_page"))
+
+
 @app.route("/outreach/send/<int:plan_id>", methods=["POST"])
 def outreach_send(plan_id):
     if is_sending():
