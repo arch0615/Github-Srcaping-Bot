@@ -42,6 +42,26 @@
   .modal .x { background:transparent; border:0; color:var(--muted); font-size:20px;
               line-height:1; cursor:pointer; padding:2px 6px; font-weight:400; }
   .modal-actions { display:flex; gap:10px; margin-top:4px; }
+  input[type=date] { width:100%; padding:8px 10px; background:#0d1117; color:var(--fg);
+                     border:1px solid var(--border); border-radius:6px; font:inherit; }
+  /* searchable single-select combobox */
+  .ss { position:relative; }
+  .ss-btn { width:100%; text-align:left; background:#0d1117; color:var(--fg);
+            border:1px solid var(--border); border-radius:6px; padding:8px 10px; font-weight:400;
+            cursor:pointer; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ss-btn .caret { color:var(--muted); font-size:11px; }
+  .ss-panel { display:none; position:absolute; z-index:20; top:calc(100% + 4px); left:0;
+              min-width:100%; max-height:240px; overflow:auto; background:var(--panel);
+              border:1px solid var(--border); border-radius:8px; padding:6px;
+              box-shadow:0 8px 24px rgba(0,0,0,.5); }
+  .ss-panel.open { display:block; }
+  .ss-search { width:100%; margin-bottom:6px; padding:7px 9px; box-sizing:border-box;
+               background:#0d1117; color:var(--fg); border:1px solid var(--border);
+               border-radius:6px; font:inherit; }
+  .ss-opt { padding:6px 9px; border-radius:5px; font-size:13px; cursor:pointer; white-space:nowrap; }
+  .ss-opt:hover { background:#21262d; }
+  .ss-opt.sel { color:#79c0ff; }
+  .ss-none { padding:6px 9px; font-size:13px; color:var(--muted); }
 </style>
 
   {% if smtp_ready %}
@@ -78,7 +98,8 @@
           <div class="plan-meta">
             <b>#{{ p.id }}</b> ·
             {{ p.continent or 'Any continent' }}{% if p.country %} / {{ p.country }}{% endif %}
-            · target {{ p.send_count }}
+            · {% if p.per_day %}{{ p.per_day }}/day{% else %}all eligible{% endif %}
+            {% if p.start_date or p.end_date %} · {{ p.start_date or '…' }} → {{ p.end_date or '…' }}{% endif %}
             <div class="muted">week of {{ p.week_start }} — “{{ p.subject }}”</div>
           </div>
           <div class="counts">
@@ -95,7 +116,9 @@
                       data-id="{{ p.id }}"
                       data-continent="{{ p.continent or '' }}"
                       data-country="{{ p.country or '' }}"
-                      data-count="{{ p.send_count }}"
+                      data-perday="{{ p.per_day or '' }}"
+                      data-start="{{ p.start_date or '' }}"
+                      data-end="{{ p.end_date or '' }}"
                       data-subject="{{ p.subject }}"
                       data-body="{{ p.body }}"
                       onclick="openEdit(this)">Edit</button>
@@ -127,21 +150,41 @@
       </div>
       <div>
         <label>Continent</label>
-        <select name="continent" id="f-continent">
-          <option value="">Any continent</option>
-          {% for c in continents %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
-        </select>
+        <div class="ss" id="ss-continent">
+          <input type="hidden" name="continent" id="f-continent" value="">
+          <button type="button" class="ss-btn"><span class="ss-label">Any continent</span><span class="caret">▾</span></button>
+          <div class="ss-panel">
+            <input type="text" class="ss-search" placeholder="Search continents…" autocomplete="off">
+            <div class="ss-opt" data-value="">Any continent</div>
+            {% for c in continents %}<div class="ss-opt" data-value="{{ c }}">{{ c }}</div>{% endfor %}
+            <div class="ss-none" style="display:none">No match</div>
+          </div>
+        </div>
       </div>
       <div>
         <label>Country</label>
-        <select name="country" id="f-country">
-          <option value="">Any country</option>
-          {% for co in country_options %}<option value="{{ co }}">{{ co }}</option>{% endfor %}
-        </select>
+        <div class="ss" id="ss-country">
+          <input type="hidden" name="country" id="f-country" value="">
+          <button type="button" class="ss-btn"><span class="ss-label">Any country</span><span class="caret">▾</span></button>
+          <div class="ss-panel">
+            <input type="text" class="ss-search" placeholder="Search countries…" autocomplete="off">
+            <div class="ss-opt" data-value="">Any country</div>
+            {% for co in country_options %}<div class="ss-opt" data-value="{{ co }}" data-continent="{{ country_continents.get(co, '') }}">{{ co }}</div>{% endfor %}
+            <div class="ss-none" style="display:none">No match</div>
+          </div>
+        </div>
       </div>
       <div>
-        <label>How many to send</label>
-        <input type="number" name="send_count" id="f-count" min="1" value="20">
+        <label>Connections per day</label>
+        <input type="number" name="per_day" id="f-perday" min="1" placeholder="no cap">
+      </div>
+      <div>
+        <label>Start date</label>
+        <input type="date" name="start_date" id="f-start">
+      </div>
+      <div>
+        <label>End date</label>
+        <input type="date" name="end_date" id="f-end">
       </div>
       <div class="full elig">Eligible (not yet contacted):
           <b id="eligN">…</b> developer(s) match this filter.</div>
@@ -171,10 +214,82 @@ const DEFAULTS = { subject: {{ default_subject|tojson }}, body: {{ default_body|
 const dlg = document.getElementById('planDialog');
 const planForm = document.getElementById('planForm');
 
+// --- searchable single-select comboboxes (continent / country) ---
+function initSS(ss, onChange) {
+  const btn = ss.querySelector('.ss-btn');
+  const panel = ss.querySelector('.ss-panel');
+  const search = ss.querySelector('.ss-search');
+  const hidden = ss.querySelector('input[type=hidden]');
+  const label = ss.querySelector('.ss-label');
+  const none = ss.querySelector('.ss-none');
+  const opts = Array.from(ss.querySelectorAll('.ss-opt'));
+  const placeholder = opts[0].textContent;  // "Any continent" / "Any country"
+
+  function applyFilter(q) {
+    q = q.trim().toLowerCase();
+    let n = 0;
+    opts.forEach(function (o) {
+      const hit = o.textContent.toLowerCase().indexOf(q) !== -1 && o.dataset.gate !== 'off';
+      o.style.display = hit ? '' : 'none';
+      if (hit) n++;
+    });
+    none.style.display = n ? 'none' : 'block';
+  }
+  function open()  { panel.classList.add('open'); search.value = ''; applyFilter(''); search.focus(); }
+  function pick(o, fire) {
+    hidden.value = o.dataset.value;
+    label.textContent = o.textContent;
+    opts.forEach(function (x) { x.classList.toggle('sel', x === o); });
+    if (onChange) onChange(o.dataset.value);
+    if (fire) updateEligible();
+  }
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    panel.classList.contains('open') ? ss.closePanel() : open();
+  });
+  search.addEventListener('input', function () { applyFilter(search.value); });
+  search.addEventListener('keydown', function (e) { if (e.key === 'Enter') e.preventDefault(); });
+  opts.forEach(function (o) { o.addEventListener('click', function () { pick(o, true); ss.closePanel(); }); });
+
+  ss.closePanel = function () { panel.classList.remove('open'); };
+  ss.setValue = function (val) {
+    val = val || '';
+    const o = opts.find(function (x) { return x.dataset.value === val; });
+    if (o) { pick(o, false); }
+    else { hidden.value = val; label.textContent = val || placeholder;
+           opts.forEach(function (x) { x.classList.remove('sel'); }); }
+  };
+  // Narrow the option list to one continent ('' = show all). "Any" always shown.
+  ss.gateByContinent = function (cont) {
+    opts.forEach(function (o) {
+      o.dataset.gate = (!cont || o.dataset.value === '' || o.dataset.continent === cont) ? 'on' : 'off';
+    });
+    // if the current selection no longer belongs to this continent, clear it
+    if (hidden.value) {
+      const cur = opts.find(function (x) { return x.dataset.value === hidden.value; });
+      if (cur && cur.dataset.gate === 'off') ss.setValue('');
+    }
+    applyFilter('');
+  };
+}
+const ssCont = document.getElementById('ss-continent');
+const ssCountry = document.getElementById('ss-country');
+// When the continent changes, restrict the country list to that continent.
+initSS(ssCont, function (cont) { ssCountry.gateByContinent(cont); });
+initSS(ssCountry);
+document.addEventListener('click', function (e) {
+  [ssCont, ssCountry].forEach(function (ss) { if (!ss.contains(e.target)) ss.closePanel(); });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') [ssCont, ssCountry].forEach(function (ss) { ss.closePanel(); });
+});
+
 function setFields(v) {
-  document.getElementById('f-continent').value = v.continent || '';
-  document.getElementById('f-country').value = v.country || '';
-  document.getElementById('f-count').value = v.count || 20;
+  ssCont.setValue(v.continent || '');
+  ssCountry.setValue(v.country || '');
+  document.getElementById('f-perday').value = v.perday || '';
+  document.getElementById('f-start').value = v.start || '';
+  document.getElementById('f-end').value = v.end || '';
   document.getElementById('f-subject').value = v.subject || '';
   document.getElementById('f-body').value = v.body || '';
 }
@@ -183,7 +298,8 @@ function openCreate() {
   planForm.action = '/outreach/plan';
   document.getElementById('planTitle').textContent = 'Create plan';
   document.getElementById('planSubmit').textContent = '＋ Create plan';
-  setFields({ continent: '', country: '', count: 20, subject: DEFAULTS.subject, body: DEFAULTS.body });
+  setFields({ continent: '', country: '', perday: '', start: '', end: '',
+              subject: DEFAULTS.subject, body: DEFAULTS.body });
   dlg.showModal();
   updateEligible();
 }
@@ -193,7 +309,8 @@ function openEdit(btn) {
   planForm.action = '/outreach/plan/' + d.id;
   document.getElementById('planTitle').textContent = 'Edit plan #' + d.id;
   document.getElementById('planSubmit').textContent = 'Save changes';
-  setFields({ continent: d.continent, country: d.country, count: d.count, subject: d.subject, body: d.body });
+  setFields({ continent: d.continent, country: d.country, perday: d.perday,
+              start: d.start, end: d.end, subject: d.subject, body: d.body });
   dlg.showModal();
   updateEligible();
 }
@@ -202,7 +319,7 @@ function closePlan() { dlg.close(); }
 // Click on the backdrop (outside the form) closes the dialog.
 dlg.addEventListener('click', function (e) { if (e.target === dlg) dlg.close(); });
 
-// Live eligible-count preview as filters change.
+// Live eligible-count preview (reads the combobox hidden inputs).
 async function updateEligible() {
   const cont = document.getElementById('f-continent').value;
   const co = document.getElementById('f-country').value;
@@ -214,8 +331,6 @@ async function updateEligible() {
     el.textContent = s.eligible.toLocaleString();
   } catch (e) { el.textContent = '?'; }
 }
-document.getElementById('f-continent').addEventListener('change', updateEligible);
-document.getElementById('f-country').addEventListener('change', updateEligible);
 
 // Stream the send log; reload the page when a send finishes so counts refresh.
 let wasSending = {{ 'true' if sending else 'false' }};

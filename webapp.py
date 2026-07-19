@@ -165,6 +165,24 @@ def fetch_country_options(cur):
     return [r["country"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
 
 
+def fetch_country_continent_map(cur):
+    """country -> the continent it appears under most often in the data.
+    Lets the plan dialog narrow the country list to the chosen continent."""
+    if not table_exists(cur):
+        return {}
+    cur.execute("""SELECT country, continent, count(*) c FROM developers
+                   WHERE country IS NOT NULL AND country <> 'Unknown'
+                     AND continent IS NOT NULL AND continent <> 'Unknown'
+                   GROUP BY country, continent
+                   ORDER BY country ASC, c DESC""")
+    out = {}
+    for row in cur.fetchall():
+        co = row["country"] if isinstance(row, dict) else row[0]
+        cont = row["continent"] if isinstance(row, dict) else row[1]
+        out.setdefault(co, cont)  # first per country = dominant continent
+    return out
+
+
 def fetch_developers(cur, q, domain, continent, country, skills, created_after, page):
     if not table_exists(cur):
         return [], 0
@@ -226,6 +244,19 @@ def page_window(page, pages, span=2):
 # --------------------------------------------------------------------------- #
 def monday_of(d: date) -> date:
     return d - timedelta(days=d.weekday())
+
+
+def parse_plan_extras(form):
+    """Pull the optional scheduling fields from a plan form.
+    Returns (per_day, start_date, end_date); blanks become None."""
+    raw = form.get("per_day", "").strip()
+    try:
+        per_day = max(1, int(raw)) if raw else None
+    except ValueError:
+        per_day = None
+    start_date = form.get("start_date", "").strip() or None
+    end_date = form.get("end_date", "").strip() or None
+    return per_day, start_date, end_date
 
 
 def eligible_count(cur, continent, country) -> int:
@@ -446,6 +477,8 @@ def outreach_page():
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         country_options = fetch_country_options(cur)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        country_continents = fetch_country_continent_map(cur)
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         plans = fetch_plans(cur)
     conn.close()
     sending_plan = _send["plan_id"] if is_sending() else None
@@ -453,6 +486,7 @@ def outreach_page():
         "outreach.html", active="outreach",
         continents=[c for c in CONTINENTS if c != "Unknown"],
         country_options=country_options,
+        country_continents=country_continents,
         plans=plans,
         default_subject=DEFAULT_SUBJECT, default_body=DEFAULT_BODY,
         smtp_ready=smtp_ready(),
@@ -481,19 +515,20 @@ def outreach_create_plan():
     country = request.form.get("country", "").strip() or None
     subject = request.form.get("subject", "").strip() or DEFAULT_SUBJECT
     body = request.form.get("body", "").strip() or DEFAULT_BODY
-    try:
-        count = max(0, int(request.form.get("send_count", "0").strip() or "0"))
-    except ValueError:
-        count = 0
+    per_day, start_date, end_date = parse_plan_extras(request.form)
+    # per_day is the send cap; mirror it into send_count (0 = no cap).
+    count = per_day or 0
     week_start = monday_of(date.today())
 
     conn = db()
     with conn.cursor() as cur:
         cur.execute(
             """INSERT INTO outreach_plans
-                   (week_start, continent, country, send_count, subject, body)
-               VALUES (%s, %s, %s, %s, %s, %s)""",
-            (week_start, continent, country, count, subject, body),
+                   (week_start, continent, country, send_count,
+                    per_day, start_date, end_date, subject, body)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+            (week_start, continent, country, count,
+             per_day, start_date, end_date, subject, body),
         )
     conn.close()
     return redirect(url_for("outreach_page"))
@@ -513,16 +548,16 @@ def outreach_update_plan(plan_id):
             country = request.form.get("country", "").strip() or None
             subject = request.form.get("subject", "").strip() or DEFAULT_SUBJECT
             body = request.form.get("body", "").strip() or DEFAULT_BODY
-            try:
-                count = max(0, int(request.form.get("send_count", "0").strip() or "0"))
-            except ValueError:
-                count = 0
+            per_day, start_date, end_date = parse_plan_extras(request.form)
+            count = per_day or 0  # per_day is the send cap; keep send_count in sync
             cur.execute(
                 """UPDATE outreach_plans
                        SET continent = %s, country = %s, send_count = %s,
+                           per_day = %s, start_date = %s, end_date = %s,
                            subject = %s, body = %s
                      WHERE id = %s""",
-                (continent, country, count, subject, body, plan_id),
+                (continent, country, count, per_day, start_date, end_date,
+                 subject, body, plan_id),
             )
     conn.close()
     return redirect(url_for("outreach_page"))

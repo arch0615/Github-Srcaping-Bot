@@ -58,12 +58,20 @@ CREATE TABLE IF NOT EXISTS outreach_plans (
     continent     TEXT,                          -- NULL = any
     country       TEXT,                          -- NULL = any
     send_count    INTEGER NOT NULL DEFAULT 0,    -- how many messages to send
+    per_day       INTEGER,                       -- connections (messages) per day; NULL = no cap
+    start_date    DATE,                          -- campaign window start (NULL = unset)
+    end_date      DATE,                          -- campaign window end   (NULL = unset)
     subject       TEXT   NOT NULL,
     body          TEXT   NOT NULL,               -- supports {name} {login} {country} {location} tokens
     status        TEXT   NOT NULL DEFAULT 'draft', -- draft | sending | done | stopped
     sent          INTEGER NOT NULL DEFAULT 0,    -- messages actually sent so far
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Additive migrations for databases created before these columns existed.
+ALTER TABLE outreach_plans ADD COLUMN IF NOT EXISTS per_day    INTEGER;
+ALTER TABLE outreach_plans ADD COLUMN IF NOT EXISTS start_date DATE;
+ALTER TABLE outreach_plans ADD COLUMN IF NOT EXISTS end_date   DATE;
 
 CREATE INDEX IF NOT EXISTS idx_plan_week ON outreach_plans (week_start DESC);
 

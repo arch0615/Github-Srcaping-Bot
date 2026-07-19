@@ -98,7 +98,8 @@ def load_plan(cur, plan_id: int) -> dict | None:
 
 def select_recipients(cur, plan: dict) -> list[dict]:
     """Developers matching the plan's filters that were never successfully
-    emailed, newest accounts first, capped at the plan's send_count."""
+    emailed, newest accounts first, capped at the plan's per-day cap.
+    A blank/zero per_day means no cap — every eligible recipient in the filter."""
     where = ["d.email IS NOT NULL", "d.email <> ''"]
     params: list = []
     if plan.get("continent"):
@@ -113,14 +114,15 @@ def select_recipients(cur, plan: dict) -> list[dict]:
         "WHERE lower(m.email) = lower(d.email) AND m.status = 'sent')"
     )
     clause = " AND ".join(where)
-    limit = max(0, int(plan.get("send_count") or 0))
+    limit = max(0, int(plan.get("per_day") or 0))
+    limit_sql = "LIMIT %s" if limit else ""
     cur.execute(
         f"""SELECT d.login, d.name, d.email, d.country, d.location
             FROM developers d
             WHERE {clause}
             ORDER BY d.github_created DESC
-            LIMIT %s""",
-        params + [limit],
+            {limit_sql}""",
+        params + ([limit] if limit else []),
     )
     return cur.fetchall()
 
@@ -202,7 +204,7 @@ def run_plan(plan_id: int):
 
     print(f">> Plan #{plan_id} — week of {plan['week_start']} | "
           f"continent={plan['continent'] or 'any'} country={plan['country'] or 'any'} "
-          f"target={plan['send_count']}", flush=True)
+          f"per_day={plan['per_day'] or 'all eligible'}", flush=True)
     if cfg["dry_run"]:
         why = "SMTP not configured" if not cfg["configured"] else "DRY_RUN=1"
         print(f">> DRY RUN ({why}) — no email will actually be sent.", flush=True)
